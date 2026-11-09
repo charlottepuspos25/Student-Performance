@@ -1,18 +1,36 @@
 # app.py
+import subprocess
+import sys
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 import joblib
 
 st.set_page_config(page_title="Student Predict", page_icon="🎓", layout="wide")
 
+BASE = Path(__file__).parent
+MODEL_PATH = BASE / "student_model.pkl"
+DATA_PATH = BASE / "student_data.csv"
 
-@st.cache_resource
+
+@st.cache_resource(show_spinner="Preparing data and model (first run only)...")
 def load_model():
-    return joblib.load("student_model.pkl")
+    # If the generated files are not in the repo (e.g. on Streamlit Cloud),
+    # run train_model.py once to download the data and train the model.
+    if not (MODEL_PATH.exists() and DATA_PATH.exists()):
+        result = subprocess.run(
+            [sys.executable, "train_model.py"],
+            cwd=BASE, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            st.error("Could not run train_model.py:\n\n" + result.stderr[-1500:])
+            st.stop()
+    return joblib.load(MODEL_PATH)
 
 
 model = load_model()
-data = pd.read_csv("student_data.csv")
+data = pd.read_csv(DATA_PATH)
 
 st.title("🎓 Student Performance Prediction")
 st.caption("Classroom prototype for academic risk exploration")

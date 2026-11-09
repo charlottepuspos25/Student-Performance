@@ -1,21 +1,72 @@
 # train_model.py
+import io
 import os
+import urllib.request
+import zipfile
+
 import pandas as pd
 
 # ---------------------------------------------------------------
 # PART 1: Retrieve the dataset (UCI Student Performance, ID 320)
+# The dataset has two files: Mathematics (395 rows) and Portuguese
+# (649 rows). This lab needs the MATHEMATICS file.
 # ---------------------------------------------------------------
-if os.path.exists("student_data.csv") and os.environ.get("REFRESH_DATA") != "1":
-    # Reuse the saved copy (set REFRESH_DATA=1 to download again)
-    df = pd.read_csv("student_data.csv")
-else:
+MATH_ROWS = 395
+ZIP_URL = "https://archive.ics.uci.edu/static/public/320/student+performance.zip"
+
+
+def read_math_from_zip(zf):
+    """Find student-mat.csv in a zip (also looks inside a nested zip)."""
+    for name in zf.namelist():
+        if name.lower().endswith("student-mat.csv"):
+            with zf.open(name) as f:
+                return pd.read_csv(f, sep=";")
+    for name in zf.namelist():
+        if name.lower().endswith(".zip"):
+            with zf.open(name) as f:
+                inner = zipfile.ZipFile(io.BytesIO(f.read()))
+            result = read_math_from_zip(inner)
+            if result is not None:
+                return result
+    return None
+
+
+def get_math_data():
+    # 1) Reuse a saved copy if it is the Mathematics file
+    if os.path.exists("student_data.csv"):
+        saved = pd.read_csv("student_data.csv")
+        if len(saved) == MATH_ROWS:
+            return saved
+        print(f"Existing student_data.csv has {len(saved)} rows, not "
+              f"{MATH_ROWS}; downloading the Mathematics file again.")
+
+    # 2) A student-mat.csv placed manually in this folder
+    if os.path.exists("student-mat.csv"):
+        return pd.read_csv("student-mat.csv", sep=";")
+
+    # 3) Download the official zip and take student-mat.csv
+    try:
+        with urllib.request.urlopen(ZIP_URL, timeout=60) as resp:
+            data = read_math_from_zip(zipfile.ZipFile(io.BytesIO(resp.read())))
+        if data is not None:
+            return data
+    except Exception as exc:
+        print("Zip download failed:", exc)
+
+    # 4) Fall back to the ucimlrepo interface used in the handout
     from ucimlrepo import fetch_ucirepo
-
     student = fetch_ucirepo(id=320)
+    return pd.concat([student.data.features, student.data.targets], axis=1)
 
-    # Combine student features and grade targets
-    df = pd.concat([student.data.features, student.data.targets], axis=1)
-    df.to_csv("student_data.csv", index=False)
+
+df = get_math_data()
+if len(df) != MATH_ROWS:
+    raise SystemExit(
+        f"Expected the Mathematics file ({MATH_ROWS} rows) but got {len(df)} rows. "
+        "Download student-mat.csv from the UCI page, put it in this folder, "
+        "and run the script again."
+    )
+df.to_csv("student_data.csv", index=False)
 
 print("Rows and columns:", df.shape)
 print(df.head())
